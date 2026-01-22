@@ -17,9 +17,6 @@ class Component: # Class for all components
         self.quantity = int(quantity)
         self.status = status
     
-    def lowStock(self): # Checks if stock is low
-        return self.quantity <= StockThreshold
-    
     def columnList(self): # Returns component data in column form
         return [self.name, self.sku, str(self.quantity), self.status]
     
@@ -30,7 +27,7 @@ class Logger: # Handles logs
         if not os.path.exists(self.logfile):
             with open(self.logfile, "w", newline = "") as file:
                 writer = csv.writer(file)
-                writer.writerow(["Timestamp", "Action", "ComponentID"])
+                writer.writerow(["Timestamp", "Action", "SKU"])
     
     def log(self, action, sku="N/A"): # Adds new log entries with sku deafaulted to N/A
         with open(self.logfile, "a", newline="") as file:
@@ -79,14 +76,14 @@ class InventoryManager: # Manages inventory data stored in the file
             csvreader = csv.reader(file)
             headers = next(csvreader, None)
 
-            if headers != ["Component Name", "ComponentID", "Quantity", "Status"]: # Checks if headers are valid
+            if headers != ["Item Name", "SKU", "Quantity", "Status"]: # Checks if headers are valid
                 file.seek(0) # Moves pointer to beginning
                 rows = list(csvreader) # reads file and makes it into a list
                 file.seek(0)
                 file.truncate() # Clears contents of file
 
                 writer = csv.writer(file)
-                writer.writerow(["Component Name", "ComponentID", "Quantity", "Status"])
+                writer.writerow(["Item Name", "SKU", "Quantity", "Status"])
                 writer.writerows(rows)
 
     def load(self): # Loads all components from file
@@ -94,12 +91,12 @@ class InventoryManager: # Manages inventory data stored in the file
         with open(self.filename, "r", newline = "") as file:
             csvreader = csv.DictReader(file) # Reads rows as dictionaries
 
-            fields = {"Component Name", "ComponentID", "Quantity", "Status"}
+            fields = {"Item Name", "SKU", "Quantity", "Status"}
             if not fields.issubset(csvreader.fieldnames): # Checks if all fields are in the file
                 return components
             
             for row in csvreader: # Creates components from row data in these columns
-                components.append(Component(row["Component Name"], row["ComponentID"], row["Quantity"], row["Status"]))
+                components.append(Component(row["Item Name"], row["SKU"], row["Quantity"], row["Status"]))
         return components
     
     def skuExists(self, sku): # Checks if sku already exists in file
@@ -111,8 +108,8 @@ class InventoryManager: # Manages inventory data stored in the file
     
     def add(self, component): # Adds new component to the file
         with open(self.filename, "a", newline = "") as file:
-            writer = csv.DictWriter(file, fieldnames = ["Component Name", "ComponentID", "Quantity", "Status"])
-            writer.writerow({"Component Name": component.name, "ComponentID": component.sku, "Quantity": component.quantity, "Status": component.status})
+            writer = csv.DictWriter(file, fieldnames = ["Item Name", "SKU", "Quantity", "Status"])
+            writer.writerow({"Item Name": component.name, "SKU": component.sku, "Quantity": component.quantity, "Status": component.status})
 
     def remove(self, sku): # Removes components from file
         rows = []
@@ -120,14 +117,14 @@ class InventoryManager: # Manages inventory data stored in the file
         with open(self.filename, "r", newline = "") as file:
             csvreader = csv.DictReader(file)
             for row in csvreader:
-                if row["ComponentID"] != sku:
+                if row["SKU"] != sku:
                     rows.append(row)
                 else:
                     removed = True
 
         if removed == True: 
             with open(self.filename, "w", newline = "") as file:
-                writer = csv.DictWriter(file, fieldnames = ["Component Name", "ComponentID", "Quantity", "Status"])
+                writer = csv.DictWriter(file, fieldnames = ["Item Name", "SKU", "Quantity", "Status"])
                 writer.writeheader()
                 writer.writerows(rows)
        
@@ -136,21 +133,32 @@ class InventoryManager: # Manages inventory data stored in the file
     def updateQuantity(self, sku, new_quantity): # Updates the quanitity of a component
         rows = []
         updated = False
+        same_quantity = False # Same quantity variable
         with open(self.filename, "r", newline = "") as file:
             csvreader = csv.DictReader(file)
             for row in csvreader:
-                if row["ComponentID"] == sku:
-                    row["Quantity"] = str(new_quantity)
-                    row["Status"] = "Low Stock" if int(new_quantity) <= StockThreshold else "Sufficient Stock"
-                    updated = True
-                rows.append(row)
+                if row["SKU"] == sku:
+                    old_quantity = int(row["Quantity"]) # Saves old quantity
+                    if old_quantity == new_quantity:
+                        same_quantity = True #IF they are the same dont log anything
+                        rows.append(row)
+                    else:
+                        row["Quantity"] = str(new_quantity)
+                        row["Status"] = "Low Stock" if int(new_quantity) <= StockThreshold else "Sufficient Stock"
+                        updated = True
+                else:
+                    rows.append(row)
+
+        if same_quantity: # If they are the same then return "same"
+            return "same"
     
         if updated:
             with open(self.filename, "w", newline = "") as file:
-                writer = csv.DictWriter(file, fieldnames=["Component Name", "ComponentID", "Quantity", "Status"])
+                writer = csv.DictWriter(file, fieldnames=["Item Name", "SKU", "Quantity", "Status"])
                 writer.writeheader()
                 writer.writerows(rows)
         return updated
+
 
 
 class LoginWindow: # Creates login gui window 
@@ -190,7 +198,7 @@ class LoginWindow: # Creates login gui window
             InventoryWindow(self.root, self.main)
         else:
             self.result_label.config(text = "Login Failed")
-            return
+            self.main.logger.log("Login Failed", "N/A")
 
 
 class InventoryWindow: # Creates actual component management window
@@ -208,8 +216,8 @@ class InventoryWindow: # Creates actual component management window
         self.inputFrame = tk.Frame(self.window)
         self.inputFrame.pack(pady=10)
 
-        tk.Label(self.inputFrame, text = "Component Name", font = self.font_size).grid(row = 0, column = 0)
-        tk.Label(self.inputFrame, text = "ComponentID", font = self.font_size).grid(row = 1, column = 0)
+        tk.Label(self.inputFrame, text = "Item Name", font = self.font_size).grid(row = 0, column = 0)
+        tk.Label(self.inputFrame, text = "SKU", font = self.font_size).grid(row = 1, column = 0)
         tk.Label(self.inputFrame, text = "Quantity", font = self.font_size).grid(row = 2, column = 0)
  
         self.item_entry = tk.Entry(self.inputFrame, font = self.font_size)
@@ -229,8 +237,8 @@ class InventoryWindow: # Creates actual component management window
         self.message_label = tk.Label(self.window, text = "", font = self.font_size)
         self.message_label.pack()
 
-        self.tree = ttk.Treeview(self.window, columns=("Component Name", "ComponentID", "Quantity", "Status"), show = "headings") # Displays data in a table using treeview
-        for column in ("Component Name", "ComponentID", "Quantity", "Status"):
+        self.tree = ttk.Treeview(self.window, columns=("Item Name", "SKU", "Quantity", "Status"), show = "headings") # Displays data in a table using treeview
+        for column in ("Item Name", "SKU", "Quantity", "Status"):
             self.tree.heading(column, text = column)
             self.tree.column(column, width = 200)
         self.tree.pack(pady = 10, fill = "both", expand = True)
@@ -251,7 +259,7 @@ class InventoryWindow: # Creates actual component management window
             self.message_label.config(text = "All fields required")
             return
         if not sku.isdigit() or int(sku) <= 0:
-            self.message_label.config(text = "ComponentID must be a positive number")
+            self.message_label.config(text = "SKU must be a positive number")
             return
         if not quantity.isdigit() or int(quantity) <= 0:
             self.message_label.config(text = "Quantity must be a positive number")
@@ -276,7 +284,7 @@ class InventoryWindow: # Creates actual component management window
     def removeItem(self): # Removes item from inventory
         sku = self.sku_entry.get().strip()
         if not sku:
-            self.message_label.config(text = "Enter ComponentID to remove")
+            self.message_label.config(text = "Enter SKU to remove")
             return
         if self.inventory.remove(sku):
             self.message_label.config(text = "Item removed")
@@ -285,10 +293,10 @@ class InventoryWindow: # Creates actual component management window
             self.message_label.config(text = "Item not found")
         self.loadInventory()
 
-    def searchItem(self): # Searches for and only displays item with given ComponentID
+    def searchItem(self): # Searches for and only displays item with given SKU
         sku = self.sku_entry.get().strip()
         if not sku:
-            self.message_label.config(text = "Enter ComponentID to search")
+            self.message_label.config(text = "Enter SKU to search")
             return
         self.tree.delete(*self.tree.get_children())
         found = False
@@ -309,13 +317,15 @@ class InventoryWindow: # Creates actual component management window
         quantity = self.quantity_entry.get().strip()
     
         if not sku or not quantity:
-            self.message_label.config(text="Enter ComponentID and quantity")
+            self.message_label.config(text="Enter SKU and quantity")
             return
         if not quantity.isdigit() or int(quantity) <= 0:
             self.message_label.config(text="Quantity must be a positive number")
             return
     
-        if self.inventory.updateQuantity(sku, int(quantity)):
+        if self.inventory.updateQuantity(sku, int(quantity)) == "same": # Checks for the same value
+            self.message_label.config(text = "Quantity is the same")
+        elif self.inventory.updateQuantity(sku, int(quantity)):
             self.message_label.config(text="Quantity updated")
             self.main.logger.log("Quantity updated", sku)
             self.loadInventory()
@@ -328,16 +338,16 @@ class LogsWindow: # Creates a logs window with the logger data.
         self.window.title("Logs")
         self.window.geometry("600x600")
 
-        tree = ttk.Treeview(self.window, columns=("Timestamp", "Action", "ComponentID"), show = "headings") # Uses treeview to make a table for logger window
+        tree = ttk.Treeview(self.window, columns=("Timestamp", "Action", "SKU"), show = "headings") # Uses treeview to make a table for logger window
 
-        for column in ("Timestamp", "Action", "ComponentID"):
+        for column in ("Timestamp", "Action", "SKU"):
             tree.heading(column, text = column)
             tree.column(column, width = 220)
 
         tree.pack(fill = "both", expand = True, pady = 10)
 
         for log in main.logger.readLogs():
-            tree.insert("", "end", values = (log["Timestamp"], log["Action"], log["ComponentID"]))
+            tree.insert("", "end", values = (log["Timestamp"], log["Action"], log["SKU"]))
 
 class Main: # Initalises whole program
     def __init__(self):
@@ -349,3 +359,4 @@ class Main: # Initalises whole program
         self.root.mainloop() # Starts program
 
 Main() # Creates an instance of main to start the program
+
