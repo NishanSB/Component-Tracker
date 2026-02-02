@@ -27,12 +27,12 @@ class Logger: # Handles logs
         if not os.path.exists(self.logfile):
             with open(self.logfile, "w", newline = "") as file:
                 writer = csv.writer(file)
-                writer.writerow(["Timestamp", "Action", "SKU"])
+                writer.writerow(["Timestamp", "Action", "SKU", "User"])
     
-    def log(self, action, sku="N/A"): # Adds new log entries with sku deafaulted to N/A
+    def log(self, action, sku="N/A", user="N/A"): # Adds new log entries with sku and user deafaulted to N/A
         with open(self.logfile, "a", newline="") as file:
             writer = csv.writer(file)
-            writer.writerow([datetime.now(), action, sku])
+            writer.writerow([datetime.now(), action, sku, user])
 
     def readLogs(self): # Reads all entries from log file
         logs = []
@@ -145,6 +145,7 @@ class InventoryManager: # Manages inventory data stored in the file
                     else:
                         row["Quantity"] = str(new_quantity)
                         row["Status"] = "Low Stock" if int(new_quantity) <= StockThreshold else "Sufficient Stock"
+                        rows.append(row)
                         updated = True
                 else:
                     rows.append(row)
@@ -166,7 +167,7 @@ class LoginWindow: # Creates login gui window
         self.root = root
         self.main = main
         self.root.title("Login") # Setting window title
-        self.root.geometry("600x300") # Setting window size
+        self.root.geometry("600x300") # Setting window size 
         self.font_size = ("Arial", 16) # sets font_size to 16 which is bigger as it was too small
   
         self.frame = tk.Frame(root)# Puts the login area into a frame
@@ -193,12 +194,13 @@ class LoginWindow: # Creates login gui window
 
         if self.main.auth.userValidation(entered_username, entered_password):
             self.result_label.config(text = "Login Success")
-            self.main.logger.log("Login Success", "N/A")
+            self.main.current_user = entered_username
+            self.main.logger.log("Login Success", "N/A", entered_username)
             self.frame.destroy() # Removes login window for an extra layer of security
             InventoryWindow(self.root, self.main)
         else:
             self.result_label.config(text = "Login Failed")
-            self.main.logger.log("Login Failed", "N/A")
+            self.main.logger.log("Login Failed", "N/A", "Unknown")
 
 
 class InventoryWindow: # Creates actual component management window
@@ -278,7 +280,7 @@ class InventoryWindow: # Creates actual component management window
         
         comp = Component(name, sku, quantity, status)
         self.inventory.add(comp)
-        self.main.logger.log("Item added", sku)
+        self.main.logger.log("Item added", sku, self.main.current_user)
         self.loadInventory()
 
     def removeItem(self): # Removes item from inventory
@@ -288,7 +290,7 @@ class InventoryWindow: # Creates actual component management window
             return
         if self.inventory.remove(sku):
             self.message_label.config(text = "Item removed")
-            self.main.logger.log("Item removed", sku)
+            self.main.logger.log("Item removed", sku, self.main.current_user)
         else:
             self.message_label.config(text = "Item not found")
         self.loadInventory()
@@ -322,12 +324,14 @@ class InventoryWindow: # Creates actual component management window
         if not quantity.isdigit() or int(quantity) <= 0:
             self.message_label.config(text="Quantity must be a positive number")
             return
+        
+        result = self.inventory.updateQuantity(sku, int(quantity))
     
-        if self.inventory.updateQuantity(sku, int(quantity)) == "same": # Checks for the same value
+        if result == "same": # Checks for the same value
             self.message_label.config(text = "Quantity is the same")
-        elif self.inventory.updateQuantity(sku, int(quantity)):
+        elif result:
             self.message_label.config(text="Quantity updated")
-            self.main.logger.log("Quantity updated", sku)
+            self.main.logger.log("Quantity updated", sku, self.main.current_user)
             self.loadInventory()
         else:
             self.message_label.config(text="Item not found")
@@ -338,25 +342,27 @@ class LogsWindow: # Creates a logs window with the logger data.
         self.window.title("Logs")
         self.window.geometry("600x600")
 
-        tree = ttk.Treeview(self.window, columns=("Timestamp", "Action", "SKU"), show = "headings") # Uses treeview to make a table for logger window
+        tree = ttk.Treeview(self.window, columns=("Timestamp", "Action", "SKU", "User"), show = "headings") # Uses treeview to make a table for logger window
 
-        for column in ("Timestamp", "Action", "SKU"):
+        for column in ("Timestamp", "Action", "SKU", "User"):
             tree.heading(column, text = column)
             tree.column(column, width = 220)
 
         tree.pack(fill = "both", expand = True, pady = 10)
 
         for log in main.logger.readLogs():
-            tree.insert("", "end", values = (log["Timestamp"], log["Action"], log["SKU"]))
+            tree.insert("", "end", values = (log["Timestamp"], log["Action"], log["SKU"], log.get("User", "N/A")))
 
 class Main: # Initalises whole program
     def __init__(self):
         self.auth = Authentication() # Handles login details
         self.logger = Logger() # Logger details
         self.inventory = InventoryManager() # Creating an instance of the inventory manager
+        self.current_user = None # Tracks current user
         self.root = tk.Tk() # Creates main tkinter window
         LoginWindow(self.root, self) # Creates and displays login window
         self.root.mainloop() # Starts program
 
 Main() # Creates an instance of main to start the program
+
 
